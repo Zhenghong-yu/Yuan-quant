@@ -61,6 +61,47 @@ def plot_ma(
     plt.close(fig)
 
 
+if __name__ == "__main__":
+    import numpy as np
+    import sys
+    import os
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+    from indicators.ma import calculate_ma_group
+    from indicators.ao import calculate_ao
+
+    print("=== plot_indicators 可视化模块测试 ===")
+
+    np.random.seed(1)
+    n   = 200
+    idx = pd.date_range("2024-01-01", periods=n, freq="h")
+    close_vals = 100 + np.cumsum(np.random.randn(n) * 0.4)
+    high_vals  = close_vals + np.abs(np.random.randn(n) * 0.2)
+    low_vals   = close_vals - np.abs(np.random.randn(n) * 0.2)
+
+    df_test = pd.DataFrame({
+        "close": close_vals,
+        "high":  high_vals,
+        "low":   low_vals,
+    }, index=idx)
+    close_s = pd.Series(close_vals, index=idx)
+    high_s  = pd.Series(high_vals,  index=idx)
+    low_s   = pd.Series(low_vals,   index=idx)
+
+    # 1. 测试 plot_ma（保存图片，不弹窗）
+    mas = calculate_ma_group(close_s, periods=[5, 20, 60])
+    print("[plot_ma] 绘制 MA 叠加图...")
+    plot_ma(df_test, mas, title="Test Price & MA", save=True, show=False)
+    print("[plot_ma] 完成")
+
+    # 2. 测试 plot_ao（保存图片，不弹窗）
+    ao_vals = calculate_ao(high_s, low_s)
+    print("[plot_ao] 绘制 AO 指标图...")
+    plot_ao(df_test, ao_vals, title="Test Price & AO", save=True, show=False)
+    print("[plot_ao] 完成")
+
+    print("=== 测试完成，图片已保存至 results/ 目录 ===")
+
+
 def plot_ao(
     df: pd.DataFrame,
     ao: pd.Series,

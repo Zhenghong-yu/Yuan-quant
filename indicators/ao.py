@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-指标模块 - AO（Awesome Oscillator，神奇震荡指标）
+AO（Awesome Oscillator，动量震荡指标）
+
+参考资料：
+https://cn.tradingview.com/support/solutions/43000501826/
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 【指标说明】
   AO（Awesome Oscillator）由 Bill Williams 创立，衡量市场近期动能与较长期动能之差。
@@ -14,7 +17,7 @@
   - 绿色（Green）：当前 AO 值 > 前一根 AO 值（动能增强）
   - 红色（Red）  ：当前 AO 值 < 前一根 AO 值（动能减弱）
 
-【信号解读】
+【信号种类】
   1. 零轴穿越（Zero Cross）
      - AO 由负转正（上穿零轴）→ 买入信号
      - AO 由正转负（下穿零轴）→ 卖出信号
@@ -22,19 +25,6 @@
   2. 蝶形形态（Saucer）
      - 蝶形买入：三根均在零轴上方，第二根绝对值最小（谷底），第三根向上翻绿
      - 蝶形卖出：三根均在零轴下方，第二根绝对值最小（峰顶），第三根向下翻红
-
-  3. 弱转强（Weak-to-Strong，用于 MTF 共振策略）
-     - 零轴上方：AO 由红色变为绿色
-     - 零轴下方：AO 由绿色变为红色
-
-【参数说明】
-  high  : pd.Series  – K 线最高价序列
-  low   : pd.Series  – K 线最低价序列
-  fast  : int        – 快速 SMA 周期，默认 5
-  slow  : int        – 慢速 SMA 周期，默认 34
-
-【依赖】
-  pandas >= 1.3
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
 
@@ -120,4 +110,52 @@ def ao_saucer_signal(ao: pd.Series) -> pd.Series:
         a, b, c = ao_vals[i - 2], ao_vals[i - 1], ao_vals[i]
         if any(v != v for v in (a, b, c)):  # NaN 检查
             continue
-        # 
+        # 蝶形买入：三根均为负值，第二根绝对值小于第一根，第三根大于第二根
+        if a < 0 and b < 0 and c < 0:
+            if abs(b) < abs(a) and c > b:
+                signal.iloc[i] = 1
+        # 蝶形卖出：三根均为正值，第二根绝对值小于第一根，第三根小于第二根
+        if a > 0 and b > 0 and c > 0:
+            if abs(b) < abs(a) and c < b:
+                signal.iloc[i] = -1
+    return signal
+
+
+if __name__ == "__main__":
+    import numpy as np
+
+    print("=== AO 指标模块测试 ===")
+
+    # 构造模拟 K 线数据（200 根）
+    np.random.seed(42)
+    n = 200
+    idx = pd.date_range("2024-01-01", periods=n, freq="h")
+    close = pd.Series(100 + np.cumsum(np.random.randn(n) * 0.5), index=idx)
+    high  = close + np.abs(np.random.randn(n) * 0.3)
+    low   = close - np.abs(np.random.randn(n) * 0.3)
+
+    # 1. 测试 calculate_ao
+    ao = calculate_ao(high, low)
+    print(f"[calculate_ao] 共 {len(ao)} 根，非空值 {ao.notna().sum()} 根")
+    print(f"  AO 最新值: {ao.iloc[-1]:.6f}")
+    print(f"  AO 最大值: {ao.max():.6f}  最小值: {ao.min():.6f}")
+
+    # 2. 测试 ao_color
+    colors = ao_color(ao)
+    green_cnt = (colors == "green").sum()
+    red_cnt   = (colors == "red").sum()
+    print(f"[ao_color] 绿色柱: {green_cnt} 根  红色柱: {red_cnt} 根")
+
+    # 3. 测试 ao_zero_cross_signal
+    zc_signal = ao_zero_cross_signal(ao)
+    buy_cnt  = (zc_signal == 1).sum()
+    sell_cnt = (zc_signal == -1).sum()
+    print(f"[ao_zero_cross_signal] 买入信号: {buy_cnt} 次  卖出信号: {sell_cnt} 次")
+
+    # 4. 测试 ao_saucer_signal
+    saucer = ao_saucer_signal(ao)
+    s_buy  = (saucer == 1).sum()
+    s_sell = (saucer == -1).sum()
+    print(f"[ao_saucer_signal] 蝶形买入: {s_buy} 次  蝶形卖出: {s_sell} 次")
+
+    print("=== 测试完成 ===")

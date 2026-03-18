@@ -173,3 +173,50 @@ class BacktestEngine:
             drawdown=drawdown,
             config={"lot": self.lot, "capital": self.capital},
         )
+
+
+if __name__ == "__main__":
+    import numpy as np
+
+    print("=== BacktestEngine 回测引擎测试 ===")
+
+    # 构造模拟 K 线数据
+    np.random.seed(7)
+    n   = 300
+    idx = pd.date_range("2024-01-01", periods=n, freq="h")
+    close_vals = 100 + np.cumsum(np.random.randn(n) * 0.3)
+    df = pd.DataFrame({
+        "open":  close_vals - 0.05,
+        "high":  close_vals + 0.1,
+        "low":   close_vals - 0.1,
+        "close": close_vals,
+    }, index=idx)
+
+    # 构造简单的交替信号（每 20 根切换一次方向）
+    raw = np.zeros(n, dtype=int)
+    direction = 1
+    for i in range(0, n, 20):
+        raw[i] = direction
+        direction *= -1
+    signals = pd.Series(raw, index=idx, name="test_signal")
+
+    # 1. 测试引擎运行
+    engine = BacktestEngine(df=df, signals=signals, lot=0.01, capital=10000.0)
+    result = engine.run()
+
+    # 2. 打印绩效摘要
+    result.print_summary()
+
+    # 3. 验证权益曲线长度与回撤均为负值
+    assert len(result.equity_curve) == n, "权益曲线长度应与 K 线数量一致"
+    assert result.drawdown.max() <= 0,     "回撤值应始终 <= 0"
+    print(f"[验证] 权益曲线长度: {len(result.equity_curve)} ✓")
+    print(f"[验证] 最大回撤 <= 0: {result.max_drawdown:.4f} ✓")
+
+    # 4. 测试 to_dataframe
+    trades_df = result.to_dataframe()
+    print(f"[to_dataframe] 交易记录 DataFrame 形状: {trades_df.shape}")
+    if not trades_df.empty:
+        print(trades_df.head(3).to_string())
+
+    print("=== 测试完成 ===")

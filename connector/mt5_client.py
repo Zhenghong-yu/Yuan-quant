@@ -124,3 +124,42 @@ class MT5Client:
     def get_account_info(self):
         """获取账户信息。"""
         return mt5.account_info()
+
+
+if __name__ == "__main__":
+    print("=== MT5Client 连接模块测试 ===")
+
+    client = MT5Client()
+
+    # 1. 测试连接
+    print("[connect] 尝试连接 MT5...")
+    ok = client.connect()
+    if not ok:
+        print("[connect] 连接失败，请确认 MT5 终端已启动且账户配置正确")
+        exit(1)
+    print(f"[connect] 连接成功，is_connected={client.is_connected()}")
+
+    # 2. 测试账户信息
+    info = client.get_account_info()
+    print(f"[get_account_info] 账号={info.login}  余额={info.balance} {info.currency}  杠杆=1:{info.leverage}")
+
+    # 3. 测试品种信息
+    sym_info = client.get_symbol_info("EURUSD")
+    if sym_info:
+        print(f"[get_symbol_info] EURUSD point={sym_info.point}  digits={sym_info.digits}")
+
+    # 4. 测试获取 K 线数据（H1，最近 100 根）
+    df = client.get_rates("EURUSD", "H1", count=100)
+    print(f"[get_rates] EURUSD H1 获取 {len(df)} 根 K 线")
+    if not df.empty:
+        print(f"  最新一根: {df.index[-1]}  close={df['close'].iloc[-1]:.5f}")
+
+    # 5. 测试不同时间框架
+    for tf in ["M1", "M5", "M15", "H4", "D1"]:
+        df_tf = client.get_rates("EURUSD", tf, count=50)
+        print(f"[get_rates] {tf:4s} 获取 {len(df_tf)} 根 K 线")
+
+    # 6. 断开连接
+    client.disconnect()
+    print(f"[disconnect] 断开完成，is_connected={client.is_connected()}")
+    print("=== 测试完成 ===")

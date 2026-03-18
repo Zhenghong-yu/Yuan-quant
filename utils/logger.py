@@ -61,3 +61,24 @@ def get_logger(name: str = "yuan_quant") -> logging.Logger:
 
     _initialized.add(name)
     return logger
+
+
+if __name__ == "__main__":
+    print("=== Logger 模块测试 ===")
+
+    log = get_logger("test_logger")
+    log.debug("这是一条 DEBUG 日志（默认 INFO 级别下不显示）")
+    log.info("这是一条 INFO 日志")
+    log.warning("这是一条 WARNING 日志")
+    log.error("这是一条 ERROR 日志")
+
+    # 验证单例：重复获取同名 logger 不会重复添加 Handler
+    log2 = get_logger("test_logger")
+    assert log is log2, "单例测试失败：两次获取的 logger 不是同一个对象"
+    print(f"[单例测试] 通过，Handler 数量: {len(log.handlers)}")
+
+    # 获取另一个模块级 logger
+    log3 = get_logger("another_module")
+    log3.info("来自另一个模块的日志")
+
+    print("=== 测试完成，日志文件已写入 logs/ 目录 ===")

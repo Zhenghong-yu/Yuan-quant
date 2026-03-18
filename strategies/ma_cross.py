@@ -131,3 +131,40 @@ class MACrossStrategy:
             logger.info("策略手动停止")
         finally:
             self.client.disconnect()
+
+
+if __name__ == "__main__":
+    print("=== MACrossStrategy 均线交叉策略测试 ===")
+    print("本测试将连接 MT5，执行一次策略信号检查（不自动开仓循环）")
+
+    # 使用默认配置（config/strategy_config.py 中的 MA_CROSS_CONFIG）
+    strategy = MACrossStrategy()
+
+    if not strategy.client.connect():
+        print("MT5 连接失败，测试中止")
+        exit(1)
+
+    # 1. 测试信号获取
+    print("[_get_signal] 计算当前 MA 交叉信号...")
+    signal = strategy._get_signal()
+    signal_label = {1: "金叉（做多）", -1: "死叉（做空）", 0: "无信号"}
+    print(f"[_get_signal] 当前信号: {signal} → {signal_label.get(signal, '未知')}")
+
+    # 2. 查询当前策略持仓
+    from config import MA_CROSS_CONFIG
+    positions = strategy.order_mgr.get_positions(
+        symbol=MA_CROSS_CONFIG["symbol"],
+        magic=MA_CROSS_CONFIG["magic"],
+    )
+    print(f"[get_positions] 当前策略持仓数: {len(positions)}")
+    for pos in positions:
+        print(f"  ticket={pos.ticket}  type={'BUY' if pos.type == 0 else 'SELL'}  "
+              f"profit={pos.profit:.2f}  lot={pos.volume}")
+
+    # 3. 执行一次完整策略检查（会根据信号决定是否开/平仓）
+    print("[run_once] 执行一次策略检查...")
+    strategy.run_once()
+    print("[run_once] 完成")
+
+    strategy.client.disconnect()
+    print("=== 测试完成 ===")

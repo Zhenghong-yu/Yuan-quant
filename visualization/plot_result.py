@@ -86,3 +86,49 @@ def plot_backtest_result(
         plt.show()
 
     plt.close(fig)
+
+
+if __name__ == "__main__":
+    import numpy as np
+    import sys
+    import os
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+    from backtest.engine import BacktestEngine
+
+    print("=== plot_result 可视化模块测试 ===")
+
+    np.random.seed(3)
+    n   = 200
+    idx = pd.date_range("2024-01-01", periods=n, freq="h")
+    close_vals = 100 + np.cumsum(np.random.randn(n) * 0.4)
+    df = pd.DataFrame({
+        "open":  close_vals - 0.05,
+        "high":  close_vals + 0.15,
+        "low":   close_vals - 0.15,
+        "close": close_vals,
+    }, index=idx)
+
+    # 构造测试信号：每 25 根切换一次方向
+    raw = [0] * n
+    direction = 1
+    for i in range(0, n, 25):
+        raw[i] = direction
+        direction *= -1
+    signals = pd.Series(raw, index=idx, name="test_signal")
+
+    # 运行回测引擎
+    engine = BacktestEngine(df=df, signals=signals, lot=0.01, capital=10000.0)
+    result = engine.run()
+    result.print_summary()
+
+    # 绘图（保存到 results/，不弹窗）
+    print("[plot_backtest_result] 绘制回测结果图...")
+    plot_backtest_result(
+        df=df,
+        signals=signals,
+        result=result,
+        title="Test Backtest Result",
+        save=True,
+        show=False,
+    )
+    print("=== 测试完成，图片已保存至 results/ 目录 ===")

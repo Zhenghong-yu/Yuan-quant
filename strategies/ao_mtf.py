@@ -208,3 +208,56 @@ class AOMTFStrategy:
             logger.info("策略手动停止")
         finally:
             self.client.disconnect()
+
+
+if __name__ == "__main__":
+    print("=== AOMTFStrategy 多时间框架共振策略测试 ===")
+    print("本测试将连接 MT5，逐一检查各时间框架 AO 状态（不自动开仓循环）")
+
+    strategy = AOMTFStrategy()
+
+    if not strategy.client.connect():
+        print("MT5 连接失败，测试中止")
+        exit(1)
+
+    # 1. 逐一检查各时间框架的 AO 状态
+    from config import AO_MTF_CONFIG
+    for tf in AO_MTF_CONFIG["timeframes"]:
+        state = strategy._ao_state(tf)
+        if state:
+            print(
+                f"[_ao_state] {tf:4s} | "
+                f"above_zero={state['above_zero']}  "
+                f"below_zero={state['below_zero']}  "
+                f"color={state['color']:7s}  "
+                f"turned_green={state['turned_green']}  "
+                f"turned_red={state['turned_red']}  "
+                f"stayed_green={state['stayed_green']}  "
+                f"stayed_red={state['stayed_red']}"
+            )
+        else:
+            print(f"[_ao_state] {tf} 数据不足，无法计算")
+
+    # 2. 检查做多/做空共振信号
+    long_ok  = strategy._check_long_signal()
+    short_ok = strategy._check_short_signal()
+    print(f"[_check_long_signal]  做多共振: {long_ok}")
+    print(f"[_check_short_signal] 做空共振: {short_ok}")
+
+    # 3. 查询当前策略持仓
+    positions = strategy.order_mgr.get_positions(
+        symbol=AO_MTF_CONFIG["symbol"],
+        magic=AO_MTF_CONFIG["magic"],
+    )
+    print(f"[get_positions] 当前策略持仓数: {len(positions)}")
+    for pos in positions:
+        print(f"  ticket={pos.ticket}  type={'BUY' if pos.type == 0 else 'SELL'}  "
+              f"profit={pos.profit:.2f}  candles_held={strategy._candle_counter.get(pos.ticket, 0)}")
+
+    # 4. 执行一次完整策略检查
+    print("[run_once] 执行一次策略检查...")
+    strategy.run_once()
+    print("[run_once] 完成")
+
+    strategy.client.disconnect()
+    print("=== 测试完成 ===")

@@ -144,3 +144,44 @@ class OrderManager:
     def get_position_count(symbol: str = None, magic: int = None) -> int:
         """返回当前持仓数量。"""
         return len(OrderManager.get_positions(symbol=symbol, magic=magic))
+
+
+if __name__ == "__main__":
+    from connector.mt5_client import MT5Client
+
+    print("=== OrderManager 订单管理模块测试 ===")
+    print("注意：本测试将在真实账户上执行下单操作，请确认账户为模拟账户！")
+
+    client = MT5Client()
+    if not client.connect():
+        print("MT5 连接失败，测试中止")
+        exit(1)
+
+    mgr = OrderManager()
+    SYMBOL = "EURUSD"
+    MAGIC  = 99999   # 测试专用魔数
+
+    # 1. 查询当前持仓
+    positions = mgr.get_positions(symbol=SYMBOL, magic=MAGIC)
+    print(f"[get_positions] 当前 {SYMBOL} 测试持仓数: {len(positions)}")
+
+    # 2. 开多仓 0.01 手
+    print("[open_buy] 开多仓 0.01 手...")
+    deal = mgr.open_buy(SYMBOL, lot=0.01, magic=MAGIC, comment="test_buy")
+    print(f"[open_buy] deal ticket: {deal}")
+
+    # 3. 查询持仓
+    positions = mgr.get_positions(symbol=SYMBOL, magic=MAGIC)
+    print(f"[get_positions] 开仓后持仓数: {len(positions)}")
+    print(f"[get_position_count] {mgr.get_position_count(symbol=SYMBOL, magic=MAGIC)}")
+
+    # 4. 平掉所有测试持仓
+    count = mgr.close_all_positions(symbol=SYMBOL, magic=MAGIC)
+    print(f"[close_all_positions] 已平仓: {count} 笔")
+
+    # 5. 再次确认持仓清空
+    remaining = mgr.get_position_count(symbol=SYMBOL, magic=MAGIC)
+    print(f"[验证] 平仓后剩余持仓: {remaining}")
+
+    client.disconnect()
+    print("=== 测试完成 ===")

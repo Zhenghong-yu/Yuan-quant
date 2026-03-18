@@ -151,3 +151,48 @@ def ma_trend_alignment(mas: pd.DataFrame) -> pd.Series:
         return 0
 
     return mas.apply(_check, axis=1).rename("MA_Alignment")
+
+
+if __name__ == "__main__":
+    import numpy as np
+
+    print("=== MA 指标模块测试 ===")
+
+    # 构造模拟收盘价序列（300 根）
+    np.random.seed(0)
+    n = 300
+    idx   = pd.date_range("2024-01-01", periods=n, freq="h")
+    close = pd.Series(100 + np.cumsum(np.random.randn(n) * 0.5), index=idx)
+
+    # 1. 测试 calculate_ma - SMA / EMA / WMA
+    for ma_type in ["SMA", "EMA", "WMA"]:
+        ma20 = calculate_ma(close, 20, ma_type)
+        print(f"[calculate_ma] {ma_type}20 最新值: {ma20.iloc[-1]:.4f}  "
+              f"非空值: {ma20.notna().sum()} 根")
+
+    # 2. 测试 calculate_ma_group（5条均线批量计算）
+    ma_group = calculate_ma_group(close, periods=[5, 20, 60, 120, 250])
+    print(f"[calculate_ma_group] 列名: {list(ma_group.columns)}")
+    print(f"  最新一行:\n{ma_group.iloc[-1].to_string()}")
+
+    # 3. 测试 ma_cross_signal（MA5 与 MA20 金叉/死叉）
+    fast = calculate_ma(close, 5)
+    slow = calculate_ma(close, 20)
+    signal = ma_cross_signal(fast, slow)
+    buy_cnt  = (signal == 1).sum()
+    sell_cnt = (signal == -1).sum()
+    print(f"[ma_cross_signal] 金叉次数: {buy_cnt}  死叉次数: {sell_cnt}")
+
+    # 4. 测试 ma_trend_alignment（多空排列检测）
+    # 构造一段明显上涨行情
+    up_close = pd.Series(
+        [float(i) for i in range(300)],
+        index=pd.date_range("2024-01-01", periods=300, freq="h")
+    )
+    up_mas = calculate_ma_group(up_close, periods=[5, 20, 60])
+    alignment = ma_trend_alignment(up_mas)
+    bull_rows = (alignment == 1).sum()
+    bear_rows = (alignment == -1).sum()
+    print(f"[ma_trend_alignment] 多头排列行数: {bull_rows}  空头排列行数: {bear_rows}")
+
+    print("=== 测试完成 ===")
