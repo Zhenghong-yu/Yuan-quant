@@ -4,7 +4,12 @@
 存放全局配置信息，包括MT5账户、交易品种、时间框架等基础参数
 """
 
-import MetaTrader5 as mt5
+try:
+    import MetaTrader5 as mt5
+    _MT5_AVAILABLE = True
+except ImportError:
+    mt5 = None
+    _MT5_AVAILABLE = False
 
 # ─────────────────────────────────────────────
 # MT5 账户配置
@@ -30,19 +35,35 @@ SYMBOLS = [
 ]
 
 # ─────────────────────────────────────────────
-# 时间框架映射（字符串 -> MT5 常量）
+# 时间框架映射（字符串 -> MT5 常量整数值）
+# 使用硬编码整数，避免在非 Windows 环境下因 MT5 不可用而崩溃
+# 数值来源：MT5 官方 API 文档
 # ─────────────────────────────────────────────
-TIMEFRAMES = {
-    "M1":  mt5.TIMEFRAME_M1,
-    "M5":  mt5.TIMEFRAME_M5,
-    "M15": mt5.TIMEFRAME_M15,
-    "M30": mt5.TIMEFRAME_M30,
-    "H1":  mt5.TIMEFRAME_H1,
-    "H4":  mt5.TIMEFRAME_H4,
-    "D1":  mt5.TIMEFRAME_D1,
-    "W1":  mt5.TIMEFRAME_W1,
-    "MN1": mt5.TIMEFRAME_MN1,
-}
+if _MT5_AVAILABLE:
+    TIMEFRAMES = {
+        "M1":  mt5.TIMEFRAME_M1,
+        "M5":  mt5.TIMEFRAME_M5,
+        "M15": mt5.TIMEFRAME_M15,
+        "M30": mt5.TIMEFRAME_M30,
+        "H1":  mt5.TIMEFRAME_H1,
+        "H4":  mt5.TIMEFRAME_H4,
+        "D1":  mt5.TIMEFRAME_D1,
+        "W1":  mt5.TIMEFRAME_W1,
+        "MN1": mt5.TIMEFRAME_MN1,
+    }
+else:
+    # MT5 时间框架常量硬编码（Windows MT5 API 固定值）
+    TIMEFRAMES = {
+        "M1":  1,
+        "M5":  5,
+        "M15": 15,
+        "M30": 30,
+        "H1":  16385,
+        "H4":  16388,
+        "D1":  16408,
+        "W1":  32769,
+        "MN1": 49153,
+    }
 DEFAULT_TIMEFRAME = "H1"
 
 # ─────────────────────────────────────────────

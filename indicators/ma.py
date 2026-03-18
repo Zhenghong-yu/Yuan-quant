@@ -154,15 +154,23 @@ def ma_trend_alignment(mas: pd.DataFrame) -> pd.Series:
 
 
 if __name__ == "__main__":
+    import sys
+    import os
     import numpy as np
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+    from visualization.plot_indicators import plot_ma_with_signals
 
     print("=== MA 指标模块测试 ===")
 
-    # 构造模拟收盘价序列（300 根）
+    # 构造模拟 K 线数据（300 根）
     np.random.seed(0)
-    n = 300
+    n     = 300
     idx   = pd.date_range("2024-01-01", periods=n, freq="h")
     close = pd.Series(100 + np.cumsum(np.random.randn(n) * 0.5), index=idx)
+    high  = close + np.abs(np.random.randn(n) * 0.3)
+    low   = close - np.abs(np.random.randn(n) * 0.3)
+    open_ = close - np.random.randn(n) * 0.15
+    df = pd.DataFrame({"open": open_, "high": high, "low": low, "close": close})
 
     # 1. 测试 calculate_ma - SMA / EMA / WMA
     for ma_type in ["SMA", "EMA", "WMA"]:
@@ -176,23 +184,34 @@ if __name__ == "__main__":
     print(f"  最新一行:\n{ma_group.iloc[-1].to_string()}")
 
     # 3. 测试 ma_cross_signal（MA5 与 MA20 金叉/死叉）
-    fast = calculate_ma(close, 5)
-    slow = calculate_ma(close, 20)
+    fast   = calculate_ma(close, 5)
+    slow   = calculate_ma(close, 20)
     signal = ma_cross_signal(fast, slow)
     buy_cnt  = (signal == 1).sum()
     sell_cnt = (signal == -1).sum()
     print(f"[ma_cross_signal] 金叉次数: {buy_cnt}  死叉次数: {sell_cnt}")
 
     # 4. 测试 ma_trend_alignment（多空排列检测）
-    # 构造一段明显上涨行情
     up_close = pd.Series(
         [float(i) for i in range(300)],
         index=pd.date_range("2024-01-01", periods=300, freq="h")
     )
-    up_mas = calculate_ma_group(up_close, periods=[5, 20, 60])
+    up_mas    = calculate_ma_group(up_close, periods=[5, 20, 60])
     alignment = ma_trend_alignment(up_mas)
     bull_rows = (alignment == 1).sum()
     bear_rows = (alignment == -1).sum()
     print(f"[ma_trend_alignment] 多头排列行数: {bull_rows}  空头排列行数: {bear_rows}")
 
     print("=== 测试完成 ===")
+
+    # ── 可视化：MA5 / MA20 金叉死叉信号 ──
+    mas_vis = calculate_ma_group(close, periods=[5, 20, 60])
+    print("[可视化] 绘制 MA 均线交叉信号图（MA5 / MA20 / MA60）...")
+    plot_ma_with_signals(
+        df=df,
+        mas=mas_vis,
+        signals=signal,
+        title="MA 指标 - 均线交叉信号（MA5 × MA20）",
+        save=True,
+        show=True,
+    )

@@ -122,17 +122,23 @@ def ao_saucer_signal(ao: pd.Series) -> pd.Series:
 
 
 if __name__ == "__main__":
+    import sys
+    import os
     import numpy as np
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+    from visualization.plot_indicators import plot_ao_with_signals
 
     print("=== AO 指标模块测试 ===")
 
     # 构造模拟 K 线数据（200 根）
     np.random.seed(42)
     n = 200
-    idx = pd.date_range("2024-01-01", periods=n, freq="h")
+    idx   = pd.date_range("2024-01-01", periods=n, freq="h")
     close = pd.Series(100 + np.cumsum(np.random.randn(n) * 0.5), index=idx)
     high  = close + np.abs(np.random.randn(n) * 0.3)
     low   = close - np.abs(np.random.randn(n) * 0.3)
+    open_ = close - np.random.randn(n) * 0.1
+    df = pd.DataFrame({"open": open_, "high": high, "low": low, "close": close})
 
     # 1. 测试 calculate_ao
     ao = calculate_ao(high, low)
@@ -159,3 +165,21 @@ if __name__ == "__main__":
     print(f"[ao_saucer_signal] 蝶形买入: {s_buy} 次  蝶形卖出: {s_sell} 次")
 
     print("=== 测试完成 ===")
+
+    # ── 可视化：零轴穿越信号 ──
+    print("[可视化] 绘制 AO 零轴穿越信号图...")
+    plot_ao_with_signals(
+        df=df, ao=ao, signals=zc_signal,
+        signal_label="Zero Cross",
+        title="AO 指标 - 零轴穿越信号",
+        save=True, show=True,
+    )
+
+    # ── 可视化：蝶形信号 ──
+    print("[可视化] 绘制 AO 蝶形信号图...")
+    plot_ao_with_signals(
+        df=df, ao=ao, signals=saucer,
+        signal_label="Saucer",
+        title="AO 指标 - 蝶形形态信号",
+        save=True, show=True,
+    )
