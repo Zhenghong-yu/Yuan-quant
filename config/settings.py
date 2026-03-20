@@ -16,7 +16,7 @@ except ImportError:
 # ─────────────────────────────────────────────
 MT5_ACCOUNT = {
     "login":    277525304,                  # MT5 账号
-    "password": "123456",                   # MT5 密码
+    "password": "Demo.123",                   # MT5 密码
     "server":   "Exness-MT5Trial5",         # 经纪商服务器名称
     "path":     "",                         # MT5 终端可执行文件路径（留空则自动检测）
     "timeout":  60000,                      # 连接超时时间（毫秒）
