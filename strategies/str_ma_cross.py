@@ -24,7 +24,7 @@
 """
 
 import time
-from config import MA_CROSS_CONFIG
+from config.strategy_config import MA_CROSS_CONFIG
 from connector import MT5Client, OrderManager
 from indicators import calculate_ma, ma_cross_signal
 from utils.logger import get_logger

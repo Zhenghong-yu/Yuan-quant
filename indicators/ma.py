@@ -184,8 +184,8 @@ if __name__ == "__main__":
     print(f"  最新一行:\n{ma_group.iloc[-1].to_string()}")
 
     # 3. 测试 ma_cross_signal（MA5 与 MA20 金叉/死叉）
-    fast   = calculate_ma(close, 5)
-    slow   = calculate_ma(close, 20)
+    fast   = calculate_ma(close, 20)
+    slow   = calculate_ma(close, 60)
     signal = ma_cross_signal(fast, slow)
     buy_cnt  = (signal == 1).sum()
     sell_cnt = (signal == -1).sum()
