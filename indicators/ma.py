@@ -2,43 +2,26 @@
 """
 指标模块 - MA（Moving Average，移动平均线）
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-【指标说明】
-  移动平均线（MA）是最经典的趋势跟踪指标，通过对一段时期内收盘价求均值，
-  平滑价格波动，揭示价格趋势方向。
+【模块职责】
+  本模块只负责「计算」，输出原始指标数值。
+  交易信号的判断请使用 signals/sig_ma.py。
 
-  本模块支持以下三种类型：
-    SMA（Simple Moving Average）      简单移动平均：各周期等权重
-    EMA（Exponential Moving Average） 指数移动平均：近期价格权重更高，对价格变化更敏感
-    WMA（Weighted Moving Average）    加权移动平均：线性加权，最新价格权重最高
+  数据流：K线数据 → indicators/ma.py（计算值）→ signals/sig_ma.py（信号）→ strategies/
 
-【常用周期说明】
-  MA5   → 超短期，5 根 K 线均线，反映极短期趋势
-  MA20  → 短期，月线级别均线，常作为支撑/阻力参考
-  MA60  → 中期，季线级别均线，趋势研判核心指标
-  MA120 → 中长期，半年线
-  MA250 → 长期，年线，牛熊分界重要参考
+【支持均线类型】
+  SMA（Simple Moving Average）      简单移动平均
+  EMA（Exponential Moving Average） 指数移动平均
+  WMA（Weighted Moving Average）    加权移动平均
 
-【典型交易信号】
-  金叉（Golden Cross）：快速均线从下向上穿越慢速均线 → 做多信号
-  死叉（Death Cross）  ：快速均线从上向下穿越慢速均线 → 做空信号
-  均线多头排列          ：MA5 > MA20 > MA60 > MA120 > MA250 → 强势上涨趋势
-  均线空头排列          ：MA5 < MA20 < MA60 < MA120 < MA250 → 强势下跌趋势
-
-【参数说明】
-  close   : pd.Series  – K 线收盘价序列
-  period  : int        – 均线计算周期
-  ma_type : str        – 均线类型，可选 'SMA' / 'EMA' / 'WMA'，默认 'SMA'
-
-【依赖】
-  pandas >= 1.3
+【常用周期】
+  MA5 / MA10 / MA20 / MA60 / MA120 / MA250
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
 
 import pandas as pd
 from typing import Literal
 
-# 预置常用周期
-DEFAULT_PERIODS = [5, 20, 60, 120, 250]
+DEFAULT_PERIODS = [5, 10, 20, 60, 120, 250]
 
 
 def calculate_ma(
@@ -51,13 +34,13 @@ def calculate_ma(
 
     Parameters
     ----------
-    close   : pd.Series  收盘价序列
-    period  : int        均线周期
-    ma_type : str        均线类型 ('SMA' | 'EMA' | 'WMA')，默认 'SMA'
+    close   : 收盘价序列
+    period  : 均线周期
+    ma_type : 均线类型 ('SMA' | 'EMA' | 'WMA')，默认 'SMA'
 
     Returns
     -------
-    pd.Series  均线值序列，名称格式为 '{ma_type}{period}'，如 'SMA20'
+    pd.Series  列名格式：'{MA_TYPE}{period}'，如 'SMA20'
     """
     ma_type = ma_type.upper()
     if ma_type == "SMA":
@@ -71,7 +54,6 @@ def calculate_ma(
         )
     else:
         raise ValueError(f"不支持的均线类型: {ma_type}，请选择 'SMA' / 'EMA' / 'WMA'")
-
     result.name = f"{ma_type}{period}"
     return result
 
@@ -86,13 +68,13 @@ def calculate_ma_group(
 
     Parameters
     ----------
-    close   : pd.Series  收盘价序列
-    periods : list       周期列表，默认 [5, 20, 60, 120, 250]
-    ma_type : str        均线类型，默认 'SMA'
+    close   : 收盘价序列
+    periods : 周期列表，默认 [5, 10, 20, 60, 120, 250]
+    ma_type : 均线类型，默认 'SMA'
 
     Returns
     -------
-    pd.DataFrame  每列为一条均线，列名格式如 'SMA5', 'SMA20' ...
+    pd.DataFrame  每列一条均线，列名如 'SMA5', 'SMA20' ...
     """
     if periods is None:
         periods = DEFAULT_PERIODS
@@ -101,68 +83,18 @@ def calculate_ma_group(
     )
 
 
-def ma_cross_signal(
-    fast_ma: pd.Series,
-    slow_ma: pd.Series,
-) -> pd.Series:
-    """
-    基于两条均线的金叉 / 死叉生成交易信号。
-
-    Parameters
-    ----------
-    fast_ma : pd.Series  快速均线（周期较小）
-    slow_ma : pd.Series  慢速均线（周期较大）
-
-    Returns
-    -------
-    pd.Series[int]
-       1  → 金叉（fast 上穿 slow，做多信号）
-      -1  → 死叉（fast 下穿 slow，做空信号）
-       0  → 无信号
-    """
-    prev_fast = fast_ma.shift(1)
-    prev_slow = slow_ma.shift(1)
-    signal = pd.Series(0, index=fast_ma.index, dtype=int, name="MA_Cross_Signal")
-    # 金叉：前一根 fast <= slow，当前 fast > slow
-    signal[(prev_fast <= prev_slow) & (fast_ma > slow_ma)] = 1
-    # 死叉：前一根 fast >= slow，当前 fast < slow
-    signal[(prev_fast >= prev_slow) & (fast_ma < slow_ma)] = -1
-    return signal
-
-
-def ma_trend_alignment(mas: pd.DataFrame) -> pd.Series:
-    """
-    检测均线多头 / 空头排列。
-    输入 DataFrame 的列必须按周期从小到大排列（如 MA5, MA20, MA60...）。
-
-    Returns
-    -------
-    pd.Series[int]
-       1  → 多头排列（短期 > 中期 > 长期）
-      -1  → 空头排列（短期 < 中期 < 长期）
-       0  → 无明显排列
-    """
-    def _check(row):
-        vals = row.values
-        if all(vals[i] > vals[i + 1] for i in range(len(vals) - 1)):
-            return 1
-        if all(vals[i] < vals[i + 1] for i in range(len(vals) - 1)):
-            return -1
-        return 0
-
-    return mas.apply(_check, axis=1).rename("MA_Alignment")
-
-
 if __name__ == "__main__":
     import sys
     import os
     import numpy as np
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+    from signals.sig_ma import (
+        ma_bull_alignment_signal, ma_cross_signal,
+        ma_price_cross_signal, ma_fan_signal,
+    )
     from visualization.plot_indicators import plot_ma_with_signals
 
     print("=== MA 指标模块测试 ===")
-
-    # 构造模拟 K 线数据（300 根）
     np.random.seed(0)
     n     = 300
     idx   = pd.date_range("2024-01-01", periods=n, freq="h")
@@ -170,48 +102,27 @@ if __name__ == "__main__":
     high  = close + np.abs(np.random.randn(n) * 0.3)
     low   = close - np.abs(np.random.randn(n) * 0.3)
     open_ = close - np.random.randn(n) * 0.15
-    df = pd.DataFrame({"open": open_, "high": high, "low": low, "close": close})
+    df    = pd.DataFrame({"open": open_, "high": high, "low": low, "close": close})
 
-    # 1. 测试 calculate_ma - SMA / EMA / WMA
-    for ma_type in ["SMA", "EMA", "WMA"]:
-        ma20 = calculate_ma(close, 20, ma_type)
-        print(f"[calculate_ma] {ma_type}20 最新值: {ma20.iloc[-1]:.4f}  "
-              f"非空值: {ma20.notna().sum()} 根")
+    # 计算均线
+    mas  = calculate_ma_group(close, periods=[5, 10, 20, 60, 120])
+    fast = calculate_ma(close, 20)
+    slow = calculate_ma(close, 60)
+    print(f"[calculate_ma_group] 列: {list(mas.columns)}")
+    print(f"[最新值]\n{mas.iloc[-1].to_string()}")
 
-    # 2. 测试 calculate_ma_group（5条均线批量计算）
-    ma_group = calculate_ma_group(close, periods=[5, 20, 60, 120, 250])
-    print(f"[calculate_ma_group] 列名: {list(ma_group.columns)}")
-    print(f"  最新一行:\n{ma_group.iloc[-1].to_string()}")
-
-    # 3. 测试 ma_cross_signal（MA5 与 MA20 金叉/死叉）
-    fast   = calculate_ma(close, 20)
-    slow   = calculate_ma(close, 60)
-    signal = ma_cross_signal(fast, slow)
-    buy_cnt  = (signal == 1).sum()
-    sell_cnt = (signal == -1).sum()
-    print(f"[ma_cross_signal] 金叉次数: {buy_cnt}  死叉次数: {sell_cnt}")
-
-    # 4. 测试 ma_trend_alignment（多空排列检测）
-    up_close = pd.Series(
-        [float(i) for i in range(300)],
-        index=pd.date_range("2024-01-01", periods=300, freq="h")
-    )
-    up_mas    = calculate_ma_group(up_close, periods=[5, 20, 60])
-    alignment = ma_trend_alignment(up_mas)
-    bull_rows = (alignment == 1).sum()
-    bear_rows = (alignment == -1).sum()
-    print(f"[ma_trend_alignment] 多头排列行数: {bull_rows}  空头排列行数: {bear_rows}")
+    # 信号（通过 signals 层）
+    s_align = ma_bull_alignment_signal(mas)
+    s_cross = ma_cross_signal(fast, slow)
+    s_price = ma_price_cross_signal(close, slow)
+    s_fan   = ma_fan_signal(fast, slow)
+    for name, s in [("多头排列", s_align), ("金叉死叉", s_cross),
+                    ("价格穿线", s_price), ("均线发散", s_fan)]:
+        print(f"[{name}] 买入: {(s==1).sum()}  卖出: {(s==-1).sum()}")
 
     print("=== 测试完成 ===")
-
-    # ── 可视化：MA5 / MA20 金叉死叉信号 ──
+    # 可视化
     mas_vis = calculate_ma_group(close, periods=[5, 20, 60])
-    print("[可视化] 绘制 MA 均线交叉信号图（MA5 / MA20 / MA60）...")
-    plot_ma_with_signals(
-        df=df,
-        mas=mas_vis,
-        signals=signal,
-        title="MA 指标 - 均线交叉信号（MA5 × MA20）",
-        save=True,
-        show=True,
-    )
+    plot_ma_with_signals(df=df, mas=mas_vis, signals=s_cross,
+                         title="MA 指标 - 金叉死叉信号（MA20×MA60）",
+                         save=True, show=True)

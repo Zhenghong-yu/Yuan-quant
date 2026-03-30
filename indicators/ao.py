@@ -1,30 +1,23 @@
 # -*- coding: utf-8 -*-
 """
-AO（Awesome Oscillator，动量震荡指标）
-
-参考资料：
-https://cn.tradingview.com/support/solutions/43000501826/
+指标模块 - AO（Awesome Oscillator，神奇震荡指标）
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-【指标说明】
-  AO（Awesome Oscillator）由 Bill Williams 创立，衡量市场近期动能与较长期动能之差。
+【模块职责】
+  本模块只负责「计算」，输出原始指标数值和辅助信息（柱色）。
+  交易信号的判断请使用 signals/sig_ao.py。
 
-  计算公式：
-      中间价  = (High + Low) / 2
-      AO      = SMA(中间价, 5) - SMA(中间价, 34)
-  其中 SMA 为简单移动平均。
+  数据流：K线数据 → indicators/ao.py（计算值）→ signals/sig_ao.py（信号）→ strategies/
+
+【计算公式】
+  中间价 = (High + Low) / 2
+  AO     = SMA(中间价, 5) - SMA(中间价, 34)
 
 【柱色定义】
-  - 绿色（Green）：当前 AO 值 > 前一根 AO 值（动能增强）
-  - 红色（Red）  ：当前 AO 值 < 前一根 AO 值（动能减弱）
+  green   : 当前 AO > 前一根 AO（动能增强）
+  red     : 当前 AO < 前一根 AO（动能减弱）
+  neutral : 首根
 
-【信号种类】
-  1. 零轴穿越（Zero Cross）
-     - AO 由负转正（上穿零轴）→ 买入信号
-     - AO 由正转负（下穿零轴）→ 卖出信号
-
-  2. 蝶形形态（Saucer）
-     - 蝶形买入：三根均在零轴上方，第二根绝对值最小（谷底），第三根向上翻绿
-     - 蝶形卖出：三根均在零轴下方，第二根绝对值最小（峰顶），第三根向下翻红
+参考：https://cn.tradingview.com/support/solutions/43000501826/
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
 
@@ -38,18 +31,18 @@ def calculate_ao(
     slow: int = 34,
 ) -> pd.Series:
     """
-    计算 Awesome Oscillator（AO）值。
+    计算 Awesome Oscillator 值。
 
     Parameters
     ----------
-    high : pd.Series  K 线最高价
-    low  : pd.Series  K 线最低价
-    fast : int        快速 SMA 窗口，默认 5
-    slow : int        慢速 SMA 窗口，默认 34
+    high : K 线最高价
+    low  : K 线最低价
+    fast : 快速 SMA 窗口，默认 5
+    slow : 慢速 SMA 窗口，默认 34
 
     Returns
     -------
-    pd.Series  AO 值序列，索引与输入相同，列名为 "AO"
+    pd.Series  列名为 'AO'
     """
     midpoint = (high + low) / 2.0
     ao = midpoint.rolling(window=fast).mean() - midpoint.rolling(window=slow).mean()
@@ -59,11 +52,11 @@ def calculate_ao(
 
 def ao_color(ao: pd.Series) -> pd.Series:
     """
-    计算每根 K 线 AO 柱的颜色。
+    计算每根 K 线 AO 柱的颜色（辅助信息，供信号模块使用）。
 
     Returns
     -------
-    pd.Series[str]  取值为 'green'（上升）、'red'（下降）或 'neutral'（首根）
+    pd.Series[str]  'green' / 'red' / 'neutral'
     """
     diff = ao.diff()
     color = diff.apply(
@@ -74,112 +67,49 @@ def ao_color(ao: pd.Series) -> pd.Series:
     return color
 
 
-def ao_zero_cross_signal(ao: pd.Series) -> pd.Series:
-    """
-    基于零轴穿越生成交易信号。
-
-    Returns
-    -------
-    pd.Series[int]
-       1  → 买入（AO 由负转正，上穿零轴）
-      -1  → 卖出（AO 由正转负，下穿零轴）
-       0  → 无信号
-    """
-    prev = ao.shift(1)
-    signal = pd.Series(0, index=ao.index, dtype=int, name="AO_ZeroCross_Signal")
-    signal[(ao > 0) & (prev <= 0)] = 1
-    signal[(ao < 0) & (prev >= 0)] = -1
-    return signal
-
-
-def ao_saucer_signal(ao: pd.Series) -> pd.Series:
-    """
-    基于蝶形形态（Saucer）生成交易信号。
-
-    Returns
-    -------
-    pd.Series[int]
-       1  → 蝶形买入
-      -1  → 蝶形卖出
-       0  → 无信号
-    """
-    signal = pd.Series(0, index=ao.index, dtype=int, name="AO_Saucer_Signal")
-    ao_vals = ao.values
-
-    for i in range(2, len(ao_vals)):
-        a, b, c = ao_vals[i - 2], ao_vals[i - 1], ao_vals[i]
-        if any(v != v for v in (a, b, c)):  # NaN 检查
-            continue
-        # 蝶形买入：三根均为负值，第二根绝对值小于第一根，第三根大于第二根
-        if a < 0 and b < 0 and c < 0:
-            if abs(b) < abs(a) and c > b:
-                signal.iloc[i] = 1
-        # 蝶形卖出：三根均为正值，第二根绝对值小于第一根，第三根小于第二根
-        if a > 0 and b > 0 and c > 0:
-            if abs(b) < abs(a) and c < b:
-                signal.iloc[i] = -1
-    return signal
-
-
 if __name__ == "__main__":
     import sys
     import os
     import numpy as np
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+    from signals.sig_ao import (
+        ao_zero_cross_signal, ao_saucer_signal,
+        ao_color_change_signal, ao_twin_peaks_signal,
+    )
     from visualization.plot_indicators import plot_ao_with_signals
 
     print("=== AO 指标模块测试 ===")
-
-    # 构造模拟 K 线数据（200 根）
     np.random.seed(42)
-    n = 200
+    n     = 200
     idx   = pd.date_range("2024-01-01", periods=n, freq="h")
     close = pd.Series(100 + np.cumsum(np.random.randn(n) * 0.5), index=idx)
     high  = close + np.abs(np.random.randn(n) * 0.3)
     low   = close - np.abs(np.random.randn(n) * 0.3)
     open_ = close - np.random.randn(n) * 0.1
-    df = pd.DataFrame({"open": open_, "high": high, "low": low, "close": close})
+    df    = pd.DataFrame({"open": open_, "high": high, "low": low, "close": close})
 
-    # 1. 测试 calculate_ao
-    ao = calculate_ao(high, low)
-    print(f"[calculate_ao] 共 {len(ao)} 根，非空值 {ao.notna().sum()} 根")
-    print(f"  AO 最新值: {ao.iloc[-1]:.6f}")
-    print(f"  AO 最大值: {ao.max():.6f}  最小值: {ao.min():.6f}")
-
-    # 2. 测试 ao_color
+    # 计算指标
+    ao     = calculate_ao(high, low)
     colors = ao_color(ao)
-    green_cnt = (colors == "green").sum()
-    red_cnt   = (colors == "red").sum()
-    print(f"[ao_color] 绿色柱: {green_cnt} 根  红色柱: {red_cnt} 根")
+    print(f"[calculate_ao] 非空值: {ao.notna().sum()}  最新: {ao.iloc[-1]:.6f}")
+    print(f"[ao_color] green: {(colors=='green').sum()}  red: {(colors=='red').sum()}")
 
-    # 3. 测试 ao_zero_cross_signal
-    zc_signal = ao_zero_cross_signal(ao)
-    buy_cnt  = (zc_signal == 1).sum()
-    sell_cnt = (zc_signal == -1).sum()
-    print(f"[ao_zero_cross_signal] 买入信号: {buy_cnt} 次  卖出信号: {sell_cnt} 次")
-
-    # 4. 测试 ao_saucer_signal
-    saucer = ao_saucer_signal(ao)
-    s_buy  = (saucer == 1).sum()
-    s_sell = (saucer == -1).sum()
-    print(f"[ao_saucer_signal] 蝶形买入: {s_buy} 次  蝶形卖出: {s_sell} 次")
+    # 信号（通过 signals 层）
+    s1 = ao_zero_cross_signal(ao)
+    s2 = ao_saucer_signal(ao)
+    s3 = ao_color_change_signal(ao, colors)
+    s4 = ao_twin_peaks_signal(ao)
+    for name, s in [("零轴穿越", s1), ("蝶形形态", s2),
+                    ("颜色变化", s3), ("双峰双谷", s4)]:
+        print(f"[{name}] 买入: {(s==1).sum()}  卖出: {(s==-1).sum()}")
 
     print("=== 测试完成 ===")
-
-    # ── 可视化：零轴穿越信号 ──
-    print("[可视化] 绘制 AO 零轴穿越信号图...")
-    plot_ao_with_signals(
-        df=df, ao=ao, signals=zc_signal,
-        signal_label="Zero Cross",
-        title="AO 指标 - 零轴穿越信号",
-        save=True, show=True,
-    )
-
-    # ── 可视化：蝶形信号 ──
-    print("[可视化] 绘制 AO 蝶形信号图...")
-    plot_ao_with_signals(
-        df=df, ao=ao, signals=saucer,
-        signal_label="Saucer",
-        title="AO 指标 - 蝶形形态信号",
-        save=True, show=True,
-    )
+    # 可视化
+    plot_ao_with_signals(df=df, ao=ao, signals=s1,
+                         signal_label="Zero Cross",
+                         title="AO 指标 - 零轴穿越信号",
+                         save=True, show=True)
+    plot_ao_with_signals(df=df, ao=ao, signals=s3,
+                         signal_label="Color Change",
+                         title="AO 指标 - 颜色变化信号",
+                         save=True, show=True)

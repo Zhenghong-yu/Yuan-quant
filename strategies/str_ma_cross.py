@@ -1,25 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-算法模块 - 均线交叉策略 (strategies/str_ma_cross.py)
+策略模块 - 均线交叉策略 (strategies/str_ma_cross.py)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 【策略说明】
-  时间框架：H1（1小时）
-  核心逻辑：
-    - MA20 上穿 MA60（金叉）→ 开多单
-    - MA20 下穿 MA60（死叉）→ 开空单
-    - 与持仓方向相反的交叉信号出现时平仓并反向开仓
+  执行链：indicators → signals → [此策略] → connector
 
-  每次只持有一个方向的仓位，新信号触发时先平旧仓再开新仓。
-
-【参数（来自 config/strategy_config.py）】
-  symbol    : 交易品种
-  timeframe : H1
-  fast_ma   : 20
-  slow_ma   : 60
-  lot       : 交易手数
-  sl_pips   : 止损点数
-  tp_pips   : 止盈点数
-  magic     : 魔术数字
+  主信号  : ma_cross_signal(MA20, MA60)   金叉做多 / 死叉做空
+  过滤信号 : ma_bull_alignment_signal      多头排列时才允许做多，空头排列时才允许做空
+  合并方式 : combine_signals(..., mode="all")  两个信号同向才入场
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
 
@@ -30,7 +18,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import time
 from config.strategy_config import MA_CROSS_CONFIG
 from connector import MT5Client, OrderManager
-from indicators import calculate_ma, ma_cross_signal
+from indicators.ma import calculate_ma, calculate_ma_group
+from signals.sig_ma import ma_cross_signal, ma_bull_alignment_signal
+from signals.base import combine_signals, SIG_BUY, SIG_SELL
 from utils.logger import get_logger
 from utils.helpers import pips_to_price
 
@@ -38,59 +28,67 @@ logger = get_logger(__name__)
 
 
 class MACrossStrategy:
-    """均线交叉策略（MA20 / MA60，H1 时间框架）。"""
+    """
+    均线交叉策略（指标 → 信号 → 执行）。
+    信号层：ma_cross_signal(MA20, MA60)  +  ma_bull_alignment_signal 过滤。
+    """
 
     def __init__(self, config: dict = None):
-        self.cfg = config or MA_CROSS_CONFIG
-        self.client = MT5Client()
+        self.cfg       = config or MA_CROSS_CONFIG
+        self.client    = MT5Client()
         self.order_mgr = OrderManager()
-
-    # ──────────────────────────────────────────
-    # 信号计算
-    # ──────────────────────────────────────────
 
     def _get_signal(self) -> int:
         """
-        拉取最新 K 线并计算均线交叉信号。
-        返回：1（金叉做多） / -1（死叉做空） / 0（无信号）
+        K线 → 指标 → 信号 → 返回最新已收盘 K 线信号。
+        返回：1（做多）/ -1（做空）/ 0（无信号）
         """
         df = self.client.get_rates(
             symbol=self.cfg["symbol"],
             timeframe=self.cfg["timeframe"],
-            count=self.cfg["slow_ma"] + 10,
+            count=max(self.cfg["slow_ma"], 120) + 10,
         )
         if df.empty:
             return 0
 
-        fast = calculate_ma(df["close"], self.cfg["fast_ma"])
-        slow = calculate_ma(df["close"], self.cfg["slow_ma"])
-        signal = ma_cross_signal(fast, slow)
+        close = df["close"]
 
-        # 取最后一根已收盘 K 线的信号（iloc[-2] 为最后一根完整 K 线）
-        return int(signal.iloc[-2])
+        # ── 指标层 ──
+        fast = calculate_ma(close, self.cfg["fast_ma"])
+        slow = calculate_ma(close, self.cfg["slow_ma"])
+        mas  = calculate_ma_group(close, periods=[5, 20, 60, 120])
 
-    # ──────────────────────────────────────────
-    # 执行
-    # ──────────────────────────────────────────
+        # ── 信号层 ──
+        sig_cross = ma_cross_signal(fast, slow)
+        sig_align = ma_bull_alignment_signal(mas)
+
+        # ── 策略层：两个信号同向才入场（AND 共振）──
+        combined = combine_signals(
+            {"cross": sig_cross, "align": sig_align},
+            mode="all",
+        )
+        return int(combined.iloc[-2])  # 取最后一根已收盘 K 线
 
     def _get_sl_tp(self, direction: int):
-        """计算止损/止盈价格。direction: 1=多, -1=空"""
-        import MetaTrader5 as mt5
-        tick = mt5.symbol_info_tick(self.cfg["symbol"])
-        sl_offset = pips_to_price(self.cfg["symbol"], self.cfg["sl_pips"])
-        tp_offset = pips_to_price(self.cfg["symbol"], self.cfg["tp_pips"])
-        if direction == 1:
-            price = tick.ask
-            sl = (price - sl_offset) if self.cfg["sl_pips"] else 0.0
-            tp = (price + tp_offset) if self.cfg["tp_pips"] else 0.0
-        else:
-            price = tick.bid
-            sl = (price + sl_offset) if self.cfg["sl_pips"] else 0.0
-            tp = (price - tp_offset) if self.cfg["tp_pips"] else 0.0
-        return sl, tp
+        """计算止损/止盈绝对价格。"""
+        try:
+            import MetaTrader5 as mt5
+            tick      = mt5.symbol_info_tick(self.cfg["symbol"])
+            sl_offset = pips_to_price(self.cfg["symbol"], self.cfg["sl_pips"])
+            tp_offset = pips_to_price(self.cfg["symbol"], self.cfg["tp_pips"])
+            if direction == SIG_BUY:
+                price = tick.ask
+                return (price - sl_offset) if self.cfg["sl_pips"] else 0.0, \
+                       (price + tp_offset) if self.cfg["tp_pips"] else 0.0
+            else:
+                price = tick.bid
+                return (price + sl_offset) if self.cfg["sl_pips"] else 0.0, \
+                       (price - tp_offset) if self.cfg["tp_pips"] else 0.0
+        except Exception:
+            return 0.0, 0.0
 
     def run_once(self):
-        """执行一次策略检查（适合定时调用或在 main 循环中调用）。"""
+        """执行一次策略检查。"""
         signal = self._get_signal()
         if signal == 0:
             return
@@ -99,22 +97,20 @@ class MACrossStrategy:
         magic  = self.cfg["magic"]
         lot    = self.cfg["lot"]
 
-        positions = self.order_mgr.get_positions(symbol=symbol, magic=magic)
-
-        # 平掉反向持仓
-        for pos in positions:
+        try:
             import MetaTrader5 as mt5
-            if (signal == 1 and pos.type == mt5.ORDER_TYPE_SELL) or \
-               (signal == -1 and pos.type == mt5.ORDER_TYPE_BUY):
-                self.order_mgr.close_position(pos)
-
-        # 若已有同向持仓则不重复开仓
-        positions = self.order_mgr.get_positions(symbol=symbol, magic=magic)
-        if positions:
-            return
+            positions = self.order_mgr.get_positions(symbol=symbol, magic=magic)
+            for pos in positions:
+                if (signal == SIG_BUY  and pos.type == mt5.ORDER_TYPE_SELL) or \
+                   (signal == SIG_SELL and pos.type == mt5.ORDER_TYPE_BUY):
+                    self.order_mgr.close_position(pos)
+            if self.order_mgr.get_positions(symbol=symbol, magic=magic):
+                return
+        except ImportError:
+            pass
 
         sl, tp = self._get_sl_tp(signal)
-        if signal == 1:
+        if signal == SIG_BUY:
             self.order_mgr.open_buy(symbol, lot, sl=sl, tp=tp,
                                     magic=magic, comment=self.cfg["comment"])
         else:
@@ -138,37 +134,12 @@ class MACrossStrategy:
 
 
 if __name__ == "__main__":
-    print("=== MACrossStrategy 均线交叉策略测试 ===")
-    print("本测试将连接 MT5，执行一次策略信号检查（不自动开仓循环）")
-
-    # 使用默认配置（config/strategy_config.py 中的 MA_CROSS_CONFIG）
+    print("=== MACrossStrategy 测试 ===")
     strategy = MACrossStrategy()
-
     if not strategy.client.connect():
-        print("MT5 连接失败，测试中止")
+        print("MT5 连接失败")
         exit(1)
-
-    # 1. 测试信号获取
-    print("[_get_signal] 计算当前 MA 交叉信号...")
     signal = strategy._get_signal()
-    signal_label = {1: "金叉（做多）", -1: "死叉（做空）", 0: "无信号"}
-    print(f"[_get_signal] 当前信号: {signal} → {signal_label.get(signal, '未知')}")
-
-    # 2. 查询当前策略持仓
-    from config import MA_CROSS_CONFIG
-    positions = strategy.order_mgr.get_positions(
-        symbol=MA_CROSS_CONFIG["symbol"],
-        magic=MA_CROSS_CONFIG["magic"],
-    )
-    print(f"[get_positions] 当前策略持仓数: {len(positions)}")
-    for pos in positions:
-        print(f"  ticket={pos.ticket}  type={'BUY' if pos.type == 0 else 'SELL'}  "
-              f"profit={pos.profit:.2f}  lot={pos.volume}")
-
-    # 3. 执行一次完整策略检查（会根据信号决定是否开/平仓）
-    print("[run_once] 执行一次策略检查...")
-    strategy.run_once()
-    print("[run_once] 完成")
-
+    print(f"当前信号: {signal} ({'+做多' if signal==1 else '-做空' if signal==-1 else '无信号'})")
     strategy.client.disconnect()
     print("=== 测试完成 ===")
